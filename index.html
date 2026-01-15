@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <!-- CSP: Allows Firebase and Google APIs -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdn.tailwindcss.com https://www.gstatic.com https://*.firebase.com https://*.googleapis.com https://*.firestore.googleapis.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://www.gstatic.com https://*.firebase.com https://*.googleapis.com; connect-src 'self' https://*.googleapis.com https://*.firebase.com https://*.cloudfunctions.net https://*.firestore.googleapis.com;">
+    <title>Xpense Tracker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    animation: {
+                        slideIn: 'slideIn 0.3s ease-out forwards',
+                        fadeIn: 'fadeIn 0.5s ease-out forwards',
+                        pulseSlow: 'pulse 6s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        chartIn: 'chartIn 1.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards'
+                    },
+                    keyframes: {
+                        slideIn: { '0%': { opacity: '0', transform: 'translateY(10px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+                        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+                        chartIn: { '0%': { opacity: '0', transform: 'rotate(-120deg) scale(0.9)' }, '100%': { opacity: '1', transform: 'rotate(0deg) scale(1)' } }
+                    }
+                }
+            },
+            plugins: [
+                function({ addUtilities }) {
+                    addUtilities({
+                        '.scrollbar-hide': { '-ms-overflow-style': 'none', 'scrollbar-width': 'none', '&::-webkit-scrollbar': { display: 'none' } },
+                        '.touch-pan-y': { 'touch-action': 'pan-y' },
+                        '.glass-panel': { background: 'rgba(17, 24, 39, 0.6)', 'backdrop-filter': 'blur(20px)', '-webkit-backdrop-filter': 'blur(20px)', border: '1px solid rgba(255, 255, 255, 0.1)', 'box-shadow': '0 8px 32px 0 rgba(0, 0, 0, 0.37)' },
+                        '.glass-card': { background: 'rgba(255, 255, 255, 0.05)', 'backdrop-filter': 'blur(10px)', '-webkit-backdrop-filter': 'blur(10px)', border: '1px solid rgba(255, 255, 255, 0.05)' },
+                        '.glass-input': { background: 'rgba(0, 0, 0, 0.3)', 'backdrop-filter': 'blur(4px)', border: '1px solid rgba(255, 255, 255, 0.1)', color: 'white' },
+                        '.gpu-accelerated': { 'will-change': 'transform', 'transform': 'translateZ(0)' }
+                    })
+                }
+            ]
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { background-color: #050505; color: white; -webkit-tap-highlight-color: transparent; font-family: 'Inter', sans-serif; }
+        .select-none { user-select: none; -webkit-user-select: none; }
+    </style>
+</head>
+<body class="bg-black text-white h-screen overflow-hidden selection:bg-pink-500 selection:text-white">
+    <!-- Background Elements -->
+    <div class="fixed top-0 left-0 w-full h-full bg-gradient-to-br from-gray-900 via-black to-gray-900 z-0"></div>
+    <div class="fixed top-10 left-[-50px] w-96 h-96 bg-purple-600/20 rounded-full mix-blend-screen filter blur-[80px] opacity-40 animate-pulseSlow"></div>
+    <div class="fixed bottom-[-50px] right-[-50px] w-[500px] h-[500px] bg-blue-600/10 rounded-full mix-blend-screen filter blur-[100px] opacity-40 animate-pulseSlow"></div>
+
+    <!-- App Container -->
+    <div class="w-full h-full flex items-center justify-center relative z-10 p-0 sm:p-4">
+        <div id="app-container" class="glass-panel w-full h-full sm:h-[850px] sm:max-w-md sm:rounded-[2.5rem] flex flex-col relative transition-all duration-500 overflow-hidden ring-1 ring-white/10">
+            <!-- Content Injected Here -->
+            <div class="flex items-center justify-center h-full">
+                <div class="w-8 h-8 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, updateProfile, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, deleteDoc, doc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==========================================
+        //  STEP 1: PASTE YOUR FIREBASE CONFIG HERE
+        //  IMPORTANT: Go to Firebase Console -> Build -> Authentication -> Sign-in method
+        //  and ENABLE "Email/Password".
+        // ==========================================
+        const YOUR_FIREBASE_CONFIG = {
+            apiKey: "AIzaSyD5lPY-BGRHXRvguv7DFv3HUKnLV72F4ag",
+            authDomain: "xpense-tracker-e371b.firebaseapp.com",
+            projectId: "xpense-tracker-e371b",
+            storageBucket: "xpense-tracker-e371b.firebasestorage.app",
+            messagingSenderId: "198172203370",
+            appId: "1:198172203370:web:8b74e4d31f4c48a89f6d13"
+        };
+        // ==========================================
+
+        const CATEGORIES = ['Grocery', 'Travel', 'Restaurant', 'Utilities', 'Rent', 'Miscellaneous'];
+        const COLORS = { 'Grocery': '#F87171', 'Travel': '#60A5FA', 'Restaurant': '#FBBF24', 'Utilities': '#34D399', 'Rent': '#A78BFA', 'Miscellaneous': '#9CA3AF' };
+        
+        const escapeHtml = (unsafe) => {
+            if (!unsafe) return '';
+            return String(unsafe).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+        }
+
+        const getLocalStr = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        
+        let state = {
+            view: 'login',
+            authMode: 'login', // 'login' or 'signup'
+            authError: '',
+            authLoading: false,
+            activeTab: 'dashboard',
+            expenses: [],
+            chartSegments: [],
+            dashboardFilter: 'Monthly',
+            periodOffset: 0,
+            formData: { amount: '', category: 'Grocery', date: getLocalStr(new Date()) },
+            user: null,
+            profile: null,
+            isProfileMenuOpen: false,
+            isOnline: false,
+            activeChartCategory: null
+        };
+
+        let db, auth, appId = 'xpense-tracker', unsubscribeData, chartRafId;
+        let swipe = { startX: 0, currentId: null, el: null, isDragging: false };
+
+        // --- Initialization ---
+        async function init() {
+            try {
+                // Determine which config to use
+                let configToUse = null;
+
+                // 1. Check if user pasted config in code (GitHub Mode)
+                if (YOUR_FIREBASE_CONFIG.apiKey) {
+                    configToUse = YOUR_FIREBASE_CONFIG;
+                } 
+                // 2. Fallback to Gemini Environment (Preview Mode)
+                else if (typeof __firebase_config !== 'undefined') {
+                    configToUse = JSON.parse(__firebase_config);
+                    appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+                }
+
+                if (configToUse) {
+                    const app = initializeApp(configToUse);
+                    auth = getAuth(app);
+                    db = getFirestore(app);
+                    
+                    onAuthStateChanged(auth, u => {
+                        state.user = u;
+                        state.isOnline = !!u;
+                        state.authLoading = false;
+                        if (u) {
+                             state.profile = { name: u.displayName || u.email.split('@')[0] };
+                             state.view = 'app';
+                             setupList(u.uid);
+                        } else {
+                            state.profile = null;
+                            state.view = 'login';
+                        }
+                        render();
+                    });
+                } else {
+                    console.warn("No Firebase Config found. Running in offline mode.");
+                    const p = localStorage.getItem('userProfile');
+                    if (p) {
+                        state.profile = JSON.parse(p);
+                        state.view = 'app';
+                        loadLocal();
+                    }
+                    render();
+                }
+            } catch (e) {
+                console.error("Init error:", e);
+                render();
+            }
+        }
+
+        function setupList(uid) {
+            if (unsubscribeData) unsubscribeData();
+            // Store data in a users collection
+            const colRef = collection(db, 'users', uid, 'expenses');
+            
+            unsubscribeData = onSnapshot(colRef, 
+                (snapshot) => {
+                    const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                    // Sort by date/created desc
+                    state.expenses = docs.sort((a, b) => {
+                        const dateA = new Date(a.date).getTime();
+                        const dateB = new Date(b.date).getTime();
+                        return dateB - dateA || (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+                    });
+                    if (state.view === 'app') renderContent();
+                },
+                (error) => console.error("Firestore error:", error)
+            );
+        }
+
+        function loadLocal() {
+            const s = localStorage.getItem(`expenses_${state.profile?.name || 'guest'}`);
+            state.expenses = s ? JSON.parse(s) : [];
+        }
+
+        // --- Auth Logic ---
+
+        window.toggleAuthMode = () => {
+            state.authMode = state.authMode === 'login' ? 'signup' : 'login';
+            state.authError = '';
+            render();
+        }
+
+        window.handleAuth = async e => {
+            e.preventDefault();
+            if (!auth) {
+                // Offline mock login
+                const n = document.getElementById('auth-name') ? document.getElementById('auth-name').value.trim() : 'Guest';
+                state.profile = { name: n };
+                localStorage.setItem('userProfile', JSON.stringify(state.profile));
+                state.view = 'app';
+                loadLocal();
+                render();
+                return;
+            }
+
+            const email = document.getElementById('auth-email').value;
+            const pass = document.getElementById('auth-pass').value;
+            const name = document.getElementById('auth-name') ? document.getElementById('auth-name').value.trim() : '';
+
+            state.authLoading = true;
+            state.authError = '';
+            render();
+
+            try {
+                if (state.authMode === 'signup') {
+                    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+                    if (name) await updateProfile(cred.user, { displayName: name });
+                } else {
+                    await signInWithEmailAndPassword(auth, email, pass);
+                }
+                // onAuthStateChanged will handle the rest
+            } catch (err) {
+                console.error(err);
+                state.authError = err.message.replace('Firebase: ', '');
+                state.authLoading = false;
+                render();
+            }
+        }
+
+        window.handleLogout = async () => {
+            if (auth) await signOut(auth);
+            if (unsubscribeData) unsubscribeData();
+            localStorage.removeItem('userProfile');
+            state.profile = null;
+            state.view = 'login';
+            state.expenses = [];
+            render();
+        }
+
+        // --- App Logic ---
+
+        window.addExp = async e => {
+            e.preventDefault();
+            const { amount, category, date } = state.formData;
+            if (!amount) return;
+            
+            const n = {
+                amount: parseFloat(amount),
+                category, date,
+                createdAt: serverTimestamp ? serverTimestamp() : new Date()
+            };
+
+            if (db && state.user) {
+                await addDoc(collection(db, 'users', state.user.uid, 'expenses'), n);
+            } else {
+                n.id = Date.now();
+                n.createdAt = { seconds: Date.now()/1000 };
+                state.expenses.unshift(n);
+                localStorage.setItem(`expenses_${state.profile.name}`, JSON.stringify(state.expenses));
+            }
+            state.formData.amount = '';
+            window.switchTab('dashboard');
+        }
+
+        window.delExp = async id => {
+            if (db && state.user) {
+                await deleteDoc(doc(db, 'users', state.user.uid, 'expenses', id));
+            } else {
+                state.expenses = state.expenses.filter(e => e.id !== id);
+                localStorage.setItem(`expenses_${state.profile.name}`, JSON.stringify(state.expenses));
+                renderContent();
+            }
+        }
+
+        // --- Helpers ---
+        window.toggleProfileMenu = () => { state.isProfileMenuOpen = !state.isProfileMenuOpen; renderHeader(); }
+        window.switchTab = t => { state.activeTab = t; renderNav(); renderContent(); }
+        window.setFilter = f => { state.dashboardFilter = f; state.periodOffset = 0; renderContent(); }
+        window.chgPeriod = d => { state.periodOffset += d; renderContent(); }
+        window.updForm = (f, v) => state.formData[f] = v;
+
+        // --- Filters & Chart Logic (Minified) ---
+        const getFiltered = () => {
+            const d = dt => new Date(dt);
+            const t = d(new Date());
+            let start, end, label;
+            const off = state.periodOffset;
+            
+            if (state.dashboardFilter === 'Daily') {
+                t.setDate(t.getDate() + off);
+                label = off === 0 ? "Today" : t.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+                return { data: state.expenses.filter(e => e.date === getLocalStr(t)), label };
+            }
+            if (state.dashboardFilter === 'Weekly') {
+                t.setDate(t.getDate() - t.getDay() + (off * 7)); t.setHours(0,0,0,0);
+                start = d(t); end = d(t); end.setDate(end.getDate()+6); end.setHours(23,59,59);
+                label = `${start.toLocaleDateString('en',{month:'short',day:'numeric'})} - ${end.toLocaleDateString('en',{month:'short',day:'numeric'})}`;
+            } else if (state.dashboardFilter === 'Monthly') {
+                t.setDate(1); t.setMonth(t.getMonth() + off); t.setHours(0,0,0,0);
+                start = d(t); end = d(t); end.setMonth(end.getMonth()+1); end.setDate(0); end.setHours(23,59,59);
+                label = start.toLocaleDateString('en', { month: 'long', year: 'numeric' });
+            } else {
+                t.setFullYear(t.getFullYear()+off, 0, 1); t.setHours(0,0,0,0);
+                start = d(t); end = d(t); end.setFullYear(end.getFullYear()+1,0,0); end.setHours(23,59,59);
+                label = start.getFullYear().toString();
+            }
+            const sStr = getLocalStr(start), eStr = getLocalStr(end);
+            return { data: state.expenses.filter(e => e.date >= sStr && e.date <= eStr), label };
+        }
+
+        // --- Interactions ---
+        window.tsS = (e, id) => { swipe = { startX: e.touches?e.touches[0].clientX:e.clientX, currentId: id, el: e.currentTarget.querySelector('.fg-item'), isDragging: true }; swipe.el.style.transition='none'; }
+        window.tsM = e => { if(!swipe.isDragging)return; const diff=(e.touches?e.touches[0].clientX:e.clientX)-swipe.startX; if(diff<0) { swipe.el.style.transform=`translateX(${Math.max(diff,-100)}px)`; if(Math.abs(diff)>10 && e.cancelable) e.preventDefault(); }}
+        window.tsE = e => { if(!swipe.isDragging)return; swipe.isDragging=false; const diff=(e.changedTouches?e.changedTouches[0].clientX:e.clientX)-swipe.startX; swipe.el.style.transition='transform 0.3s'; if(diff<-80){swipe.el.style.transform='translateX(-120%)'; setTimeout(()=>window.delExp(swipe.currentId),300);}else{swipe.el.style.transform='translateX(0)';} }
+
+        // --- Render ---
+        function render() {
+            const c = document.getElementById('app-container');
+            if (state.view === 'login') {
+                const isSignup = state.authMode === 'signup';
+                c.innerHTML = `
+                    <div class="flex-1 flex flex-col items-center justify-center p-8 animate-slideIn">
+                        <div class="mb-6 relative">
+                            <div class="w-20 h-20 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 blur-lg absolute top-0 left-0 animate-pulse"></div>
+                            <div class="w-20 h-20 rounded-full bg-black/50 border border-white/20 flex items-center justify-center relative z-10">
+                                <svg width="32" height="32" stroke="white" viewBox="0 0 24 24" fill="none" stroke-width="1.5"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
+                            </div>
+                        </div>
+                        <h1 class="text-2xl font-light text-white mb-1 tracking-tight">Xpense Tracker</h1>
+                        <p class="text-white/40 text-xs mb-6">${isSignup ? 'Create your account' : 'Welcome back'}</p>
+                        
+                        <form onsubmit="handleAuth(event)" class="w-full space-y-4">
+                            ${isSignup ? `<input type="text" id="auth-name" class="glass-input w-full p-4 rounded-xl text-sm outline-none focus:border-white/40 transition-all placeholder-white/30" placeholder="Display Name" required autocomplete="name"/>` : ''}
+                            <input type="email" id="auth-email" class="glass-input w-full p-4 rounded-xl text-sm outline-none focus:border-white/40 transition-all placeholder-white/30" placeholder="Email Address" required autocomplete="email"/>
+                            <input type="password" id="auth-pass" class="glass-input w-full p-4 rounded-xl text-sm outline-none focus:border-white/40 transition-all placeholder-white/30" placeholder="Password" required autocomplete="current-password" minlength="6"/>
+                            
+                            ${state.authError ? `<div class="text-red-400 text-xs text-center bg-red-500/10 p-2 rounded-lg border border-red-500/20">${escapeHtml(state.authError)}</div>` : ''}
+                            
+                            <button type="submit" class="w-full py-4 rounded-xl font-bold text-sm tracking-wide uppercase bg-white/10 hover:bg-white/20 border border-white/10 transition-all disabled:opacity-50" ${state.authLoading ? 'disabled' : ''}>
+                                ${state.authLoading ? 'Please Wait...' : (isSignup ? 'Create Account' : 'Login')}
+                            </button>
+                        </form>
+                        
+                        <div class="mt-6 text-center">
+                            <button onclick="toggleAuthMode()" class="text-xs text-white/40 hover:text-white transition-colors">
+                                ${isSignup ? 'Already have an account? Login' : 'New here? Create Account'}
+                            </button>
+                        </div>
+                    </div>`;
+            } else {
+                if (!document.getElementById('app-shell')) {
+                    c.innerHTML = `<div id="app-shell" class="flex flex-col h-full relative"><div id="app-header" class="p-6 flex justify-between items-center border-b border-white/5 bg-white/5 relative z-20"></div><div id="main-content" class="flex-1 overflow-y-auto p-6 scrollbar-hide relative overflow-x-hidden"></div><div id="app-nav" class="p-4 border-t border-white/5 bg-black/40 backdrop-blur-xl relative z-20"></div></div>`;
+                }
+                renderHeader(); renderContent(); renderNav();
+            }
+        }
+
+        function renderHeader() {
+            const h = document.getElementById('app-header'); if(!h)return;
+            h.innerHTML = `<div><h1 class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-white to-white/50">Xpense Tracker</h1><p class="text-[10px] text-white/40 tracking-[0.2em] font-medium">HELLO, ${escapeHtml(state.profile.name.toUpperCase())}</p></div><div class="relative"><button onclick="toggleProfileMenu()" class="w-10 h-10 rounded-full bg-white/10 border border-white/10 flex items-center justify-center text-xs font-bold hover:bg-white/20 transition-colors relative">${escapeHtml(state.profile.name.substring(0,2).toUpperCase())}<div class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full ${state.isOnline?'bg-green-500':'bg-red-500'} border-2 border-black"></div></button>${state.isProfileMenuOpen?`<div class="absolute top-12 right-0 w-32 glass-card rounded-xl overflow-hidden shadow-2xl animate-fadeIn z-50"><button onclick="handleLogout()" class="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-white/10 transition-colors flex items-center gap-2">Logout</button></div>`:''}</div>`;
+        }
+
+        function renderNav() {
+            const n = document.getElementById('app-nav'); if(!n)return;
+            const isActive = t => state.activeTab === t ? 'text-white' : 'text-white/40 hover:text-white';
+            n.innerHTML = `<div class="flex justify-around items-center"><button onclick="window.switchTab('dashboard')" class="flex flex-col items-center gap-1 transition-all ${isActive('dashboard')}"><svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg><span class="text-[10px] font-medium">Dash</span></button><button onclick="window.switchTab('add')" class="flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-white/20 to-white/5 shadow-xl text-white -mt-10 border border-white/20 transition-transform ${state.activeTab==='add'?'scale-110 ring-2 ring-white/30':'hover:scale-105'}"><svg width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg></button><button onclick="window.switchTab('history')" class="flex flex-col items-center gap-1 transition-all ${isActive('history')}"><svg width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg><span class="text-[10px] font-medium">List</span></button></div>`;
+        }
+
+        function renderContent() {
+            const c = document.getElementById('main-content'); if(!c)return;
+            const { data, label } = getFiltered();
+            
+            if (state.activeTab === 'dashboard') {
+                const tot = data.reduce((s,i)=>s+i.amount,0);
+                const cats={}; data.forEach(e=>cats[e.category]=(cats[e.category]||0)+e.amount);
+                const segs=Object.entries(cats).filter(([,v])=>v>0);
+                
+                let grad='rgba(255,255,255,0.05) 0% 100%', sp=0;
+                if(segs.length){ grad='conic-gradient('; segs.forEach(([k,v],i)=>{const p=(v/tot)*100, ep=sp+p; grad+=`${COLORS[k]} ${sp}% ${ep}%${i<segs.length-1?',':')'}`; sp=ep;});}
+
+                c.innerHTML = `<div class="space-y-6 animate-slideIn h-full flex flex-col">
+                    <div class="flex justify-center p-1 bg-white/5 rounded-xl border border-white/5 mx-4">${['Daily','Weekly','Monthly','Yearly'].map(f=>`<button onclick="setFilter('${f}')" class="flex-1 py-1.5 text-[10px] sm:text-xs font-medium rounded-lg transition-all ${state.dashboardFilter===f?'bg-white text-black':'text-white/50 hover:text-white'}">${f}</button>`).join('')}</div>
+                    <div class="flex items-center justify-between px-8 -my-2 select-none"><button onclick="chgPeriod(-1)" class="p-2 text-white/30 hover:text-white"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 19l-7-7 7-7"/></svg></button><span class="text-white/80 font-light text-sm tracking-wide">${escapeHtml(label)}</span><button onclick="chgPeriod(1)" class="p-2 text-white/30 hover:text-white"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></button></div>
+                    <div class="flex-1 flex flex-col items-center justify-center min-h-[300px] relative">
+                        <div class="absolute w-64 h-64 bg-white/5 rounded-full blur-[40px]"></div>
+                        <div class="w-64 h-64 rounded-full absolute animate-chartIn" style="background:${grad};box-shadow:0 0 30px rgba(255,255,255,0.05);mask-image:radial-gradient(transparent 65%,black 66%);-webkit-mask-image:radial-gradient(transparent 65%,black 66%)"></div>
+                        <div class="absolute z-10 w-40 h-40 glass-card rounded-full flex flex-col items-center justify-center"><span class="text-[10px] text-white/50 uppercase tracking-widest mb-1">Total Spent</span><span class="text-3xl font-light text-white">$${tot.toLocaleString('en',{minimumFractionDigits:2})}</span></div>
+                    </div>
+                    <div class="flex flex-wrap justify-center gap-3 pb-4">${segs.length?segs.map(([k,v])=>`<div class="flex items-center gap-2 glass-card px-3 py-1.5 rounded-full border border-white/5"><div class="w-2 h-2 rounded-full" style="background:${COLORS[k]}"></div><span class="text-xs text-white/90 font-medium">${escapeHtml(k)}</span><span class="text-[10px] text-white/50 ml-1">$${v.toFixed(0)}</span></div>`).join(''):'<span class="text-white/30 text-xs py-4">No expenses</span>'}</div>
+                </div>`;
+            } else if (state.activeTab === 'add') {
+                const { amount, date, category } = state.formData;
+                c.innerHTML = `<div class="space-y-6 pt-4 animate-slideIn"><form onsubmit="addExp(event)"><div class="space-y-5">
+                    <div class="relative"><label class="absolute -top-2.5 left-4 text-[10px] bg-black/80 px-2 text-white/60 rounded-full border border-white/10 z-10">Amount</label><div class="relative"><span class="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 text-xl">$</span><input type="number" step="0.01" value="${amount}" oninput="updForm('amount',this.value)" class="glass-input w-full pl-10 text-3xl font-light text-center h-20 rounded-2xl focus:outline-none focus:border-white/40 placeholder-white/20" placeholder="0.00" autofocus required/></div></div>
+                    <div class="grid grid-cols-3 gap-6">
+                        <div class="relative col-span-1"><label class="absolute -top-2.5 left-3 text-[10px] bg-black/80 px-2 text-white/60 rounded-full border border-white/10 z-10">Date</label><input type="date" value="${date}" onchange="updForm('date',this.value)" class="glass-input w-full px-4 text-sm h-14 rounded-2xl focus:outline-none focus:border-white/40" required/></div>
+                        <div class="relative col-span-2"><label class="absolute -top-2.5 left-3 text-[10px] bg-black/80 px-2 text-white/60 rounded-full border border-white/10 z-10">Type</label><select onchange="updForm('category',this.value)" class="glass-input w-full px-4 text-sm appearance-none h-14 rounded-2xl focus:outline-none focus:border-white/40">${CATEGORIES.map(k=>`<option value="${k}" ${category===k?'selected':''} class="bg-gray-900">${k}</option>`).join('')}</select><div class="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none opacity-50"><svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></div></div>
+                    </div>
+                    <button type="submit" class="w-full py-4 rounded-2xl font-bold text-sm tracking-wide uppercase mt-6 bg-white/10 hover:bg-white/20 border border-white/10 transition-all">Save Transaction</button>
+                </div></form></div>`;
+            } else {
+                c.innerHTML = `<div class="animate-slideIn h-full flex flex-col">
+                    <div class="mb-4 space-y-4">
+                        <div class="flex justify-center p-1 bg-white/5 rounded-xl border border-white/5 mx-4">${['Daily','Weekly','Monthly','Yearly'].map(f=>`<button onclick="setFilter('${f}')" class="flex-1 py-1.5 text-[10px] sm:text-xs font-medium rounded-lg transition-all ${state.dashboardFilter===f?'bg-white text-black':'text-white/50 hover:text-white'}">${f}</button>`).join('')}</div>
+                        <div class="flex items-center justify-between px-2 select-none"><button onclick="chgPeriod(-1)" class="p-2 text-white/30 hover:text-white"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 19l-7-7 7-7"/></svg></button><span class="text-white/80 font-light text-sm tracking-wide">${escapeHtml(label)}</span><button onclick="chgPeriod(1)" class="p-2 text-white/30 hover:text-white"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5l7 7-7 7"/></svg></button></div>
+                    </div>
+                    ${data.length===0?'<div class="text-center text-white/30 py-20 font-light">No transactions</div>':`<div class="space-y-3 pb-4"><p class="text-[10px] text-white/30 text-center italic mb-2">Slide row left to delete</p>${data.map(i=>`
+                        <div class="group relative overflow-hidden rounded-2xl mb-3 select-none touch-pan-y gpu-accelerated" onmousedown="tsS(event,'${i.id}')" onmousemove="tsM(event)" onmouseup="tsE(event)" onmouseleave="tsE(event)" ontouchstart="tsS(event,'${i.id}')" ontouchmove="tsM(event)" ontouchend="tsE(event)">
+                            <div class="absolute inset-y-0 right-0 w-full bg-red-500/20 border border-red-500/30 flex items-center justify-end px-6 rounded-2xl"><svg class="text-red-400 w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div>
+                            <div class="fg-item relative bg-gray-900 border border-white/5 p-4 rounded-2xl flex items-center justify-between z-10 transition-transform duration-200 ease-out shadow-sm"><div class="flex items-center gap-4 pointer-events-none"><div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold bg-white/5 border border-white/10 text-white/90">${escapeHtml(i.category)[0]}</div><div><div class="text-sm font-medium text-white/90">${escapeHtml(i.category)}</div><div class="text-[10px] text-white/40 font-light">${escapeHtml(i.date)}</div></div></div><div class="flex items-center gap-3 pointer-events-none"><span class="font-light text-white/90 text-lg">-$${i.amount.toFixed(2)}</span></div></div>
+                        </div>`).join('')}</div>`}
+                </div>`;
+            }
+        }
+        init();
+    </script>
+</body>
+</html>
